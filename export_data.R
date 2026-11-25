@@ -1,53 +1,25 @@
-if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
-if (!requireNamespace("curatedMetagenomicData", quietly = TRUE)) BiocManager::install("curatedMetagenomicData")
-if (!requireNamespace("SummarizedExperiment", quietly = TRUE)) BiocManager::install("SummarizedExperiment")
-
 library(curatedMetagenomicData)
-library(SummarizedExperiment)
+library(mia)
+library(phyloseq)
 
-# Load YachidaS_2019
-se_list <- curatedMetagenomicData("YachidaS_2019.relative_abundance", dryrun = FALSE)
-se <- se_list[[1]]
+tse_list <- curatedMetagenomicData("YachidaS_2019.relative_abundance", dryrun = FALSE, counts = FALSE)
+tse <- tse_list[[1]]
 
-# 1. METADATA TABLE
-metadata_df <- as.data.frame(colData(se))
-metadata_df <- cbind(sample_id = rownames(metadata_df), metadata_df)
+ps_yachida <- convertToPhyloseq(tse, assay.type = "relative_abundance")
 
-# 2. OTU TABLE (Samples x Features)
-raw_assay <- assay(se, "relative_abundance")
-tax_strings <- rownames(raw_assay) # Original taxonomic strings
+# 2. Verify the phyloseq object
+ps_yachida
 
-# Give features clean IDs (e.g., feat_1, feat_2...) to keep table lightweight
-feature_ids <- paste0("feat_", seq_len(nrow(raw_assay)))
-rownames(raw_assay) <- feature_ids
 
-otu_df <- as.data.frame(t(raw_assay))
-otu_df <- cbind(sample_id = rownames(otu_df), otu_df)
+# 1. Export OTU / Abundance Table (taxa as rows, samples as columns)
+otu_df <- as.data.frame(otu_table(ps_yachida))
+write.table(otu_df, file = "otu_table.txt", sep = "\t", quote = FALSE, col.names = NA)
 
-# 3. TAXONOMY TABLE (Features x Ranks)
-parse_taxonomy <- function(tax_str) {
-  parts <- strsplit(tax_str, "\\|")[[1]]
-  ranks <- c(Kingdom = NA, Phylum = NA, Class = NA, Order = NA, Family = NA, Genus = NA, Species = NA)
-  for (p in parts) {
-    if (grepl("^k__", p)) ranks["Kingdom"] <- sub("^k__", "", p)
-    if (grepl("^p__", p)) ranks["Phylum"] <- sub("^p__", "", p)
-    if (grepl("^c__", p)) ranks["Class"] <- sub("^c__", "", p)
-    if (grepl("^o__", p)) ranks["Order"] <- sub("^o__", "", p)
-    if (grepl("^f__", p)) ranks["Family"] <- sub("^f__", "", p)
-    if (grepl("^g__", p)) ranks["Genus"] <- sub("^g__", "", p)
-    if (grepl("^s__", p)) ranks["Species"] <- sub("^s__", "", p)
-  }
-  return(as.list(ranks))
-}
+# 2. Export Sample Metadata Table
+# Wrapping in data.frame() converts phyloseq's S4 sample_data class into a standard data frame
+meta_df <- data.frame(sample_data(ps_yachida), check.names = FALSE)
+write.table(meta_df, file = "sample_data.txt", sep = "\t", quote = FALSE, col.names = NA)
 
-tax_list <- lapply(tax_strings, parse_taxonomy)
-tax_df <- do.call(rbind, lapply(tax_list, as.data.frame))
-rownames(tax_df) <- feature_ids
-tax_df <- cbind(feature_id = rownames(tax_df), tax_df)
-
-# Export all three as tab-delimited text files
-write.table(metadata_df, "metadata.txt", sep = "\t", row.names = FALSE, quote = FALSE)
-write.table(otu_df, "otu_table.txt", sep = "\t", row.names = FALSE, quote = FALSE)
-write.table(tax_df, "tax_table.txt", sep = "\t", row.names = FALSE, quote = FALSE)
-
-cat("Successfully exported metadata.txt, otu_table.txt, and tax_table.txt!\n")
+# 3. Export Taxonomy Table
+tax_df <- as.data.frame(tax_table(ps_yachida))
+write.table(tax_df, file = "tax_table.txt", sep = "\t", quote = FALSE, col.names = NA)
